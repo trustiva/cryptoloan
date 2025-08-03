@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { SecuritySettings } from "@/components/security-features";
 import { PaymentReminders } from "@/components/payment-reminders";
 import { AnalyticsDashboard } from "@/components/analytics-dashboard";
+import { SystemStatus } from "@/components/system-status";
+import { ProductionReadinessCheck } from "@/components/production-readiness-check";
 import { Settings, Shield, Bell, BarChart3, User, CreditCard } from "lucide-react";
 
 export default function SettingsPage() {
@@ -25,7 +27,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'}`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-7' : 'grid-cols-5'}`}>
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               Profile
@@ -42,11 +44,21 @@ export default function SettingsPage() {
               <CreditCard className="w-4 h-4" />
               Payments
             </TabsTrigger>
+            <TabsTrigger value="system" className="flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              System
+            </TabsTrigger>
             {isAdmin && (
-              <TabsTrigger value="analytics" className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4" />
-                Analytics
-              </TabsTrigger>
+              <>
+                <TabsTrigger value="analytics" className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  Analytics
+                </TabsTrigger>
+                <TabsTrigger value="testing" className="flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Testing
+                </TabsTrigger>
+              </>
             )}
           </TabsList>
 
@@ -151,10 +163,19 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="system" className="space-y-6">
+            <SystemStatus />
+          </TabsContent>
+
           {isAdmin && (
-            <TabsContent value="analytics" className="space-y-6">
-              <AnalyticsDashboard />
-            </TabsContent>
+            <>
+              <TabsContent value="analytics" className="space-y-6">
+                <AnalyticsDashboard />
+              </TabsContent>
+              <TabsContent value="testing" className="space-y-6">
+                <ProductionReadinessCheck />
+              </TabsContent>
+            </>
           )}
         </Tabs>
       </div>

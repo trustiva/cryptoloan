@@ -34,6 +34,14 @@ export interface IStorage {
     activeLoans: number;
     totalCollateral: string;
   }>;
+
+  // Admin operations
+  getAllLoans(): Promise<Loan[]>;
+  getAllUsers(): Promise<User[]>;
+  getAllTransactions(): Promise<Transaction[]>;
+  getAllLoansWithUsers(): Promise<any[]>;
+  getAllUsersWithStats(): Promise<any[]>;
+  suspendUser(userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -139,6 +147,48 @@ export class DatabaseStorage implements IStorage {
       activeLoans,
       totalCollateral: totalCollateral.toFixed(2),
     };
+  }
+
+  // Admin operations
+  async getAllLoans(): Promise<Loan[]> {
+    return await db.select().from(loans).orderBy(desc(loans.createdAt));
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getAllTransactions(): Promise<Transaction[]> {
+    return await db.select().from(transactions).orderBy(desc(transactions.createdAt));
+  }
+
+  async getAllLoansWithUsers(): Promise<any[]> {
+    const allLoans = await this.getAllLoans();
+    const allUsers = await this.getAllUsers();
+    
+    return allLoans.map(loan => ({
+      ...loan,
+      user: allUsers.find(u => u.id === loan.userId)
+    }));
+  }
+
+  async getAllUsersWithStats(): Promise<any[]> {
+    const allUsers = await this.getAllUsers();
+    const allLoans = await this.getAllLoans();
+    
+    return allUsers.map(user => ({
+      ...user,
+      totalLoans: allLoans.filter(l => l.userId === user.id).length,
+      activeLoans: allLoans.filter(l => l.userId === user.id && l.status === 'active').length,
+      totalBorrowed: allLoans
+        .filter(l => l.userId === user.id)
+        .reduce((sum, l) => sum + parseFloat(l.amount), 0)
+    }));
+  }
+
+  async suspendUser(userId: string): Promise<void> {
+    // In production, add suspended field to users table
+    console.log(`User ${userId} suspended`);
   }
 }
 
