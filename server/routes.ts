@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { generalLimiter, authLimiter, loanApplicationLimiter, paymentLimiter } from "./middleware/rateLimiter";
+import { performance } from "./middleware/performanceMonitor";
+import { registerAdminRoutes } from "./routes/adminRoutes";
 import { insertLoanSchema, insertTransactionSchema } from "@shared/schema";
 import { z } from "zod";
 import { CRYPTO_PRICES, calculateLoanMetrics } from "./cryptoService";
@@ -13,11 +16,17 @@ const loanApplicationSchema = insertLoanSchema.extend({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Performance monitoring middleware
+  app.use(performance.middleware());
+  
+  // General rate limiting
+  app.use(generalLimiter.middleware());
+  
   // Auth middleware
   await setupAuth(app);
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+  // Auth routes with rate limiting
+  app.get('/api/auth/user', authLimiter.middleware(), isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
@@ -34,7 +43,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Loan routes
-  app.post('/api/loans', isAuthenticated, async (req: any, res) => {
+  app.post('/api/loans', loanApplicationLimiter.middleware(), isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const validatedData = loanApplicationSchema.parse(req.body);
@@ -169,8 +178,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Payment simulation route
-  app.post('/api/loans/:loanId/payment', isAuthenticated, async (req: any, res) => {
+  // Payment simulation route with rate limiting
+  app.post('/api/loans/:loanId/payment', paymentLimiter.middleware(), isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { loanId } = req.params;
@@ -237,6 +246,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to process payment" });
     }
   });
+
+  // Register admin routes
+  registerAdminRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;

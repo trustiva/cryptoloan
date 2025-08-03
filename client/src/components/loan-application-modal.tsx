@@ -1,455 +1,489 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { isUnauthorizedError } from "@/lib/authUtils";
-import { useLoanNotifications } from "@/components/ui/toast-notifications";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
-
-const loanSchema = z.object({
-  amount: z.number().min(100, "Minimum loan amount is $100").max(100000, "Maximum loan amount is $100,000"),
-  currency: z.string(),
-  termDays: z.number().min(30).max(365),
-  purpose: z.string(),
-  collateralType: z.string(),
-  collateralAmount: z.number().min(0.001, "Minimum collateral amount is 0.001"),
-  interestRate: z.string(),
-});
-
-type LoanFormData = z.infer<typeof loanSchema>;
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { ArrowLeft, ArrowRight, CheckCircle, AlertCircle, TrendingUp, Shield, Clock, DollarSign } from "lucide-react";
 
 interface LoanApplicationModalProps {
-  open: boolean;
+  isOpen: boolean;
   onClose: () => void;
 }
 
-// This will be fetched from the API
-let CRYPTO_PRICES = {
-  BTC: 43250,
-  ETH: 2540,
-  BNB: 315,
-  ADA: 0.85,
-  SOL: 65.50,
-  MATIC: 0.92,
-  DOT: 7.20,
-  LINK: 14.80,
-};
+const CRYPTO_OPTIONS = [
+  { value: "BTC", label: "Bitcoin (BTC)", icon: "₿" },
+  { value: "ETH", label: "Ethereum (ETH)", icon: "Ξ" },
+  { value: "BNB", label: "Binance Coin (BNB)", icon: "BNB" },
+  { value: "ADA", label: "Cardano (ADA)", icon: "ADA" },
+  { value: "SOL", label: "Solana (SOL)", icon: "SOL" },
+  { value: "MATIC", label: "Polygon (MATIC)", icon: "MATIC" },
+  { value: "DOT", label: "Polkadot (DOT)", icon: "DOT" },
+  { value: "LINK", label: "Chainlink (LINK)", icon: "LINK" }
+];
 
-export default function LoanApplicationModal({ open, onClose }: LoanApplicationModalProps) {
-  const [step, setStep] = useState(1);
-  const maxSteps = 3;
+const LOAN_TERMS = [
+  { days: 30, label: "30 days", rate: 8.5 },
+  { days: 60, label: "60 days", rate: 12.0 },
+  { days: 90, label: "90 days", rate: 15.5 },
+  { days: 180, label: "180 days", rate: 22.0 },
+  { days: 365, label: "365 days", rate: 35.0 }
+];
+
+function LoanApplicationModal({ isOpen, onClose }: LoanApplicationModalProps) {
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState({
+    amount: "",
+    collateralType: "",
+    collateralAmount: "",
+    termDays: 30,
+    interestRate: 8.5
+  });
+  const [calculations, setCalculations] = useState({
+    collateralValue: 0,
+    ltvRatio: 0,
+    totalRepayment: 0,
+    monthlyPayment: 0,
+    isEligible: false
+  });
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { notifyLoanApproved } = useLoanNotifications();
 
-  // Fetch real-time crypto prices
   const { data: cryptoPrices } = useQuery({
     queryKey: ["/api/crypto-prices"],
-    staleTime: 60000, // 1 minute
+    refetchInterval: 30000 // Update every 30 seconds
   });
 
-  // Update CRYPTO_PRICES when data is fetched
-  if (cryptoPrices) {
-    CRYPTO_PRICES = { ...CRYPTO_PRICES, ...cryptoPrices };
-  }
-
-  const form = useForm<LoanFormData>({
-    resolver: zodResolver(loanSchema),
-    defaultValues: {
-      currency: "USDT",
-      termDays: 90,
-      purpose: "Trading",
-      interestRate: "8.5",
-      collateralType: "",
-      amount: 0,
-      collateralAmount: 0,
+  const loanMutation = useMutation({
+    mutationFn: async (loanData: any) => {
+      const response = await fetch("/api/loans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loanData),
+      });
+      if (!response.ok) throw new Error("Failed to submit loan application");
+      return response.json();
     },
-  });
-
-  const { watch } = form;
-  const watchedValues = watch();
-
-  const createLoanMutation = useMutation({
-    mutationFn: async (data: LoanFormData) => {
-      await apiRequest("POST", "/api/loans", data);
-    },
-    onSuccess: (loan: any) => {
-      const amount = watchedValues.amount.toString();
-      notifyLoanApproved(loan?.id || "unknown", amount);
-      queryClient.invalidateQueries({ queryKey: ["/api/loans"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      onClose();
-      form.reset();
-      setStep(1);
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
+    onSuccess: () => {
       toast({
-        title: "Error",
-        description: "Failed to submit loan application. Please try again.",
+        title: "Loan Application Submitted",
+        description: "Your loan application has been approved and processed successfully!",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/loans"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user/stats"] });
+      onClose();
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Application Failed",
+        description: error.message || "Failed to submit loan application",
         variant: "destructive",
       });
     },
   });
 
+  // Real-time calculations
+  useEffect(() => {
+    if (formData.amount && formData.collateralType && formData.collateralAmount && cryptoPrices) {
+      const loanAmount = parseFloat(formData.amount);
+      const collateralQty = parseFloat(formData.collateralAmount);
+      const cryptoPrice = (cryptoPrices as any)?.[formData.collateralType] || 0;
+      const collateralValue = collateralQty * cryptoPrice;
+      const ltvRatio = loanAmount / collateralValue;
+      const interestAmount = (loanAmount * formData.interestRate) / 100;
+      const totalRepayment = loanAmount + interestAmount;
+      const monthlyPayment = totalRepayment / (formData.termDays / 30);
+
+      setCalculations({
+        collateralValue,
+        ltvRatio: ltvRatio * 100,
+        totalRepayment,
+        monthlyPayment,
+        isEligible: ltvRatio <= 0.75 && loanAmount >= 100 && loanAmount <= 100000
+      });
+    }
+  }, [formData, cryptoPrices]);
+
+  const resetForm = () => {
+    setCurrentStep(1);
+    setFormData({
+      amount: "",
+      collateralType: "",
+      collateralAmount: "",
+      termDays: 30,
+      interestRate: 8.5
+    });
+    setCalculations({
+      collateralValue: 0,
+      ltvRatio: 0,
+      totalRepayment: 0,
+      monthlyPayment: 0,
+      isEligible: false
+    });
+  };
+
   const handleNext = () => {
-    if (step < maxSteps) {
-      setStep(step + 1);
+    if (currentStep < 4) {
+      setCurrentStep(currentStep + 1);
     }
   };
 
-  const handlePrev = () => {
-    if (step > 1) {
-      setStep(step - 1);
+  const handlePrevious = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
     }
   };
 
-  const handleSubmit = (data: LoanFormData) => {
-    createLoanMutation.mutate(data);
+  const handleSubmit = () => {
+    if (!calculations.isEligible) {
+      toast({
+        title: "Ineligible Application",
+        description: "Please adjust your loan amount or collateral to meet requirements.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    loanMutation.mutate({
+      amount: parseFloat(formData.amount),
+      collateralType: formData.collateralType,
+      collateralAmount: parseFloat(formData.collateralAmount),
+      termDays: formData.termDays,
+      interestRate: formData.interestRate,
+      totalRepayment: calculations.totalRepayment.toFixed(2)
+    });
   };
 
-  const handleClose = () => {
-    onClose();
-    setStep(1);
-    form.reset();
+  const handleTermChange = (days: number) => {
+    const selectedTerm = LOAN_TERMS.find(term => term.days === days);
+    setFormData(prev => ({
+      ...prev,
+      termDays: days,
+      interestRate: selectedTerm?.rate || 8.5
+    }));
   };
 
-  // Calculate loan metrics
-  const calculateMetrics = () => {
-    const { amount, collateralAmount, collateralType, termDays } = watchedValues;
-    if (!amount || !collateralAmount || !collateralType) return null;
-
-    const cryptoPrice = CRYPTO_PRICES[collateralType as keyof typeof CRYPTO_PRICES] || 0;
-    const collateralValue = collateralAmount * cryptoPrice;
-    const ltvRatio = amount / collateralValue;
-    const liquidationPrice = cryptoPrice * (amount / collateralValue) * 1.2; // 20% buffer
-    const interestRate = 0.085;
-    const termInYears = termDays / 365;
-    const totalInterest = amount * interestRate * termInYears;
-    const monthlyPayment = (amount + totalInterest) / (termDays / 30);
-
-    return {
-      collateralValue,
-      ltvRatio,
-      liquidationPrice,
-      totalInterest,
-      monthlyPayment,
-      totalRepayment: amount + totalInterest,
-    };
-  };
-
-  const metrics = calculateMetrics();
-
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Apply for Crypto Loan</DialogTitle>
-        </DialogHeader>
-
-        {/* Step Indicator */}
-        <div className="flex items-center justify-between mb-8">
-          {[1, 2, 3].map((stepNumber) => (
-            <div key={stepNumber} className="flex items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  stepNumber <= step
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {stepNumber}
-              </div>
-              <span className="ml-2 text-sm font-medium">
-                {stepNumber === 1 && "Loan Details"}
-                {stepNumber === 2 && "Collateral"}
-                {stepNumber === 3 && "Review"}
-              </span>
-              {stepNumber < 3 && (
-                <div className="flex-1 h-px bg-border mx-4" />
-              )}
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 1:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <DollarSign className="w-12 h-12 mx-auto text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Loan Amount</h3>
+              <p className="text-sm text-muted-foreground">How much would you like to borrow?</p>
             </div>
-          ))}
-        </div>
-
-        <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-          {/* Step 1: Loan Details */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="amount">Loan Amount ($)</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    placeholder="10000"
-                    {...form.register("amount", { valueAsNumber: true })}
-                  />
-                  {form.formState.errors.amount && (
-                    <p className="text-sm text-destructive mt-1">
-                      {form.formState.errors.amount.message}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <Label htmlFor="currency">Currency</Label>
-                  <Select
-                    value={watchedValues.currency}
-                    onValueChange={(value) => form.setValue("currency", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="USDT">USDT (Tether)</SelectItem>
-                      <SelectItem value="USDC">USDC (USD Coin)</SelectItem>
-                      <SelectItem value="DAI">DAI (Dai Stablecoin)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="termDays">Loan Term</Label>
-                  <Select
-                    value={watchedValues.termDays.toString()}
-                    onValueChange={(value) => form.setValue("termDays", parseInt(value))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="30">30 days</SelectItem>
-                      <SelectItem value="60">60 days</SelectItem>
-                      <SelectItem value="90">90 days</SelectItem>
-                      <SelectItem value="180">180 days</SelectItem>
-                      <SelectItem value="365">365 days</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="purpose">Purpose</Label>
-                  <Select
-                    value={watchedValues.purpose}
-                    onValueChange={(value) => form.setValue("purpose", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Trading">Trading</SelectItem>
-                      <SelectItem value="Personal">Personal</SelectItem>
-                      <SelectItem value="Business">Business</SelectItem>
-                      <SelectItem value="Investment">Investment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Collateral */}
-          {step === 2 && (
             <div className="space-y-4">
               <div>
-                <Label>Collateral Type</Label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-                  {Object.entries(CRYPTO_PRICES).map(([crypto, price]) => (
-                    <div key={crypto} className="relative">
-                      <input
-                        type="radio"
-                        id={crypto}
-                        value={crypto}
-                        {...form.register("collateralType")}
-                        className="peer hidden"
-                      />
-                      <label
-                        htmlFor={crypto}
-                        className="flex flex-col items-center p-4 border-2 border-border rounded-lg cursor-pointer hover:border-primary peer-checked:border-primary peer-checked:bg-primary/5 transition-colors"
-                      >
-                        <span className="text-2xl mb-1">
-                          {crypto === "BTC" && "₿"}
-                          {crypto === "ETH" && "⟠"}
-                          {crypto === "BNB" && "🔶"}
-                          {crypto === "ADA" && "♠"}
-                          {crypto === "SOL" && "◉"}
-                          {crypto === "MATIC" && "⬟"}
-                          {crypto === "DOT" && "●"}
-                          {crypto === "LINK" && "🔗"}
-                        </span>
-                        <span className="text-sm font-medium">{crypto}</span>
-                        <span className="text-xs text-muted-foreground">${price.toLocaleString()}</span>
-                      </label>
-                    </div>
-                  ))}
+                <Label htmlFor="amount">Loan Amount (USDT)</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  placeholder="Enter amount (100 - 100,000)"
+                  value={formData.amount}
+                  onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
+                  min="100"
+                  max="100000"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>Min: $100</span>
+                  <span>Max: $100,000</span>
                 </div>
-                {form.formState.errors.collateralType && (
-                  <p className="text-sm text-destructive mt-1">
-                    Please select a collateral type
-                  </p>
-                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[1000, 5000, 10000].map((amount) => (
+                  <Button
+                    key={amount}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, amount: amount.toString() }))}
+                  >
+                    ${amount.toLocaleString()}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 2:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <Shield className="w-12 h-12 mx-auto text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Collateral Selection</h3>
+              <p className="text-sm text-muted-foreground">Choose your cryptocurrency collateral</p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="collateralType">Cryptocurrency</Label>
+                <Select value={formData.collateralType} onValueChange={(value) => 
+                  setFormData(prev => ({ ...prev, collateralType: value }))
+                }>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select cryptocurrency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CRYPTO_OPTIONS.map((crypto) => (
+                      <SelectItem key={crypto.value} value={crypto.value}>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm">{crypto.icon}</span>
+                          <span>{crypto.label}</span>
+                          {cryptoPrices && (
+                            <Badge variant="secondary" className="ml-auto">
+                              ${(cryptoPrices as any)?.[crypto.value]?.toLocaleString() || "N/A"}
+                            </Badge>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="collateralAmount">Collateral Amount</Label>
                 <Input
                   id="collateralAmount"
                   type="number"
+                  placeholder="Enter collateral amount"
+                  value={formData.collateralAmount}
+                  onChange={(e) => setFormData(prev => ({ ...prev, collateralAmount: e.target.value }))}
                   step="0.001"
-                  placeholder="0.5"
-                  {...form.register("collateralAmount", { valueAsNumber: true })}
                 />
-                {form.formState.errors.collateralAmount && (
-                  <p className="text-sm text-destructive mt-1">
-                    {form.formState.errors.collateralAmount.message}
-                  </p>
+                {formData.collateralType && cryptoPrices && formData.collateralAmount && (
+                  <div className="mt-2 p-3 bg-muted rounded-lg">
+                    <div className="flex justify-between text-sm">
+                      <span>Current Price:</span>
+                      <span className="font-medium">${(cryptoPrices as any)?.[formData.collateralType]?.toLocaleString() || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Collateral Value:</span>
+                      <span className="font-medium text-primary">${calculations.collateralValue.toLocaleString()}</span>
+                    </div>
+                  </div>
                 )}
               </div>
-              {metrics && (
-                <Card>
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-3">Collateral Requirements</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Current Price ({watchedValues.collateralType}):</span>
-                        <span className="font-medium">${CRYPTO_PRICES[watchedValues.collateralType as keyof typeof CRYPTO_PRICES]?.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Collateral Value:</span>
-                        <span className="font-medium">${metrics.collateralValue.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Loan-to-Value Ratio:</span>
-                        <span className="font-medium">{(metrics.ltvRatio * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Liquidation Price:</span>
-                        <span className="font-medium text-destructive">${metrics.liquidationPrice.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          )}
-
-          {/* Step 3: Review */}
-          {step === 3 && (
-            <div className="space-y-4">
-              <Card>
-                <CardContent className="p-6">
-                  <h4 className="font-medium mb-4">Loan Summary</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Loan Amount:</span>
-                      <span className="font-medium">${watchedValues.amount?.toLocaleString()} {watchedValues.currency}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Loan Term:</span>
-                      <span className="font-medium">{watchedValues.termDays} days</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Interest Rate:</span>
-                      <span className="font-medium">8.5% APR</span>
-                    </div>
-                    {metrics && (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Monthly Payment:</span>
-                          <span className="font-medium">${metrics.monthlyPayment.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Total Interest:</span>
-                          <span className="font-medium">${metrics.totalInterest.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between border-t border-border pt-3">
-                          <span className="text-muted-foreground">Total Repayment:</span>
-                          <span className="font-semibold text-lg">${metrics.totalRepayment.toFixed(2)}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="bg-amber-50 border-amber-200">
-                <CardContent className="p-4">
-                  <div className="flex">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 mr-3" />
-                    <div>
-                      <h5 className="font-medium text-amber-900">Important Notice</h5>
-                      <p className="text-sm text-amber-800 mt-1">
-                        Your collateral will be locked in a smart contract. If you fail to repay the loan, 
-                        your collateral may be liquidated to cover the outstanding amount.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Navigation Buttons */}
-          <div className="flex justify-between pt-6 border-t border-border">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handlePrev}
-              disabled={step === 1}
-              className={step === 1 ? "invisible" : ""}
-            >
-              <ChevronLeft className="w-4 h-4 mr-2" />
-              Previous
-            </Button>
-            <div className="flex space-x-3">
-              {step < maxSteps ? (
-                <Button type="button" onClick={handleNext}>
-                  Next Step
-                  <ChevronRight className="w-4 h-4 ml-2" />
-                </Button>
-              ) : (
-                <Button 
-                  type="submit" 
-                  disabled={createLoanMutation.isPending}
-                  className="bg-secondary hover:bg-secondary/90"
-                >
-                  {createLoanMutation.isPending ? "Submitting..." : "Submit Application"}
-                </Button>
-              )}
             </div>
           </div>
-        </form>
+        );
+
+      case 3:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <Clock className="w-12 h-12 mx-auto text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Loan Terms</h3>
+              <p className="text-sm text-muted-foreground">Select your preferred repayment period</p>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3">
+                {LOAN_TERMS.map((term) => (
+                  <Card 
+                    key={term.days}
+                    className={`cursor-pointer transition-all ${
+                      formData.termDays === term.days 
+                        ? 'ring-2 ring-primary bg-primary/5' 
+                        : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => handleTermChange(term.days)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{term.label}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {term.rate}% APR
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-muted-foreground">Interest</div>
+                          <div className="font-medium">
+                            ${formData.amount ? ((parseFloat(formData.amount) * term.rate) / 100).toFixed(2) : '0.00'}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 4:
+        return (
+          <div className="space-y-6">
+            <div className="text-center">
+              <CheckCircle className="w-12 h-12 mx-auto text-primary mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Loan Summary</h3>
+              <p className="text-sm text-muted-foreground">Review your loan details before submitting</p>
+            </div>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Loan Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Loan Amount:</span>
+                    <div className="font-medium">${parseFloat(formData.amount || '0').toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Interest Rate:</span>
+                    <div className="font-medium">{formData.interestRate}% APR</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Term:</span>
+                    <div className="font-medium">{formData.termDays} days</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total Repayment:</span>
+                    <div className="font-medium text-primary">${calculations.totalRepayment.toFixed(2)}</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Collateral Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Collateral:</span>
+                    <div className="font-medium">{formData.collateralAmount} {formData.collateralType}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Current Value:</span>
+                    <div className="font-medium">${calculations.collateralValue.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">LTV Ratio:</span>
+                    <div className={`font-medium ${calculations.ltvRatio <= 75 ? 'text-green-600' : 'text-red-600'}`}>
+                      {calculations.ltvRatio.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <div className="flex items-center gap-1">
+                      {calculations.isEligible ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                          <span className="text-green-600 font-medium">Eligible</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-4 h-4 text-red-600" />
+                          <span className="text-red-600 font-medium">Not Eligible</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {!calculations.isEligible && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                    <div className="flex items-center gap-2 text-destructive text-sm">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="font-medium">Eligibility Requirements:</span>
+                    </div>
+                    <ul className="mt-2 text-xs text-destructive space-y-1 ml-6">
+                      <li>• LTV ratio must be ≤ 75%</li>
+                      <li>• Loan amount: $100 - $100,000</li>
+                      <li>• Sufficient collateral value</li>
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Apply for Crypto Loan</DialogTitle>
+        </DialogHeader>
+
+        {/* Progress Indicator */}
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium">Step {currentStep} of 4</span>
+            <span className="text-sm text-muted-foreground">
+              {currentStep === 1 && "Loan Amount"}
+              {currentStep === 2 && "Collateral"}
+              {currentStep === 3 && "Terms"}
+              {currentStep === 4 && "Review"}
+            </span>
+          </div>
+          <Progress value={(currentStep / 4) * 100} className="h-2" />
+        </div>
+
+        {/* Step Content */}
+        <div className="min-h-[400px]">
+          {renderStepContent()}
+        </div>
+
+        <Separator />
+
+        {/* Navigation Buttons */}
+        <div className="flex justify-between">
+          <Button
+            variant="outline"
+            onClick={handlePrevious}
+            disabled={currentStep === 1}
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Previous
+          </Button>
+
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            {currentStep < 4 ? (
+              <Button
+                onClick={handleNext}
+                disabled={
+                  (currentStep === 1 && !formData.amount) ||
+                  (currentStep === 2 && (!formData.collateralType || !formData.collateralAmount)) ||
+                  (currentStep === 3 && !formData.termDays)
+                }
+              >
+                Next
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={!calculations.isEligible || loanMutation.isPending}
+                className="min-w-[120px]"
+              >
+                {loanMutation.isPending ? "Submitting..." : "Submit Application"}
+              </Button>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+export default LoanApplicationModal;
