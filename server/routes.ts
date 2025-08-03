@@ -110,6 +110,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/loans/:loanId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { loanId } = req.params;
+      const loan = await storage.getLoan(loanId);
+      
+      if (!loan || loan.userId !== userId) {
+        return res.status(404).json({ message: "Loan not found" });
+      }
+      
+      res.json(loan);
+    } catch (error) {
+      console.error("Error fetching loan:", error);
+      res.status(500).json({ message: "Failed to fetch loan" });
+    }
+  });
+
+  app.get('/api/loans/:loanId/transactions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { loanId } = req.params;
+      const loan = await storage.getLoan(loanId);
+      
+      if (!loan || loan.userId !== userId) {
+        return res.status(404).json({ message: "Loan not found" });
+      }
+      
+      const transactions = await storage.getLoanTransactions(loanId);
+      res.json(transactions);
+    } catch (error) {
+      console.error("Error fetching loan transactions:", error);
+      res.status(500).json({ message: "Failed to fetch loan transactions" });
+    }
+  });
+
   // Transaction routes
   app.get('/api/transactions', isAuthenticated, async (req: any, res) => {
     try {
@@ -141,13 +176,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { loanId } = req.params;
       const { amount } = req.body;
 
+      // Enhanced validation
+      if (!amount || isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ message: "Invalid payment amount" });
+      }
+
+      if (amount > 100000) {
+        return res.status(400).json({ message: "Payment amount exceeds maximum limit" });
+      }
+
+      // Verify loan ownership and status
       const loan = await storage.getLoan(loanId);
       if (!loan || loan.userId !== userId) {
         return res.status(404).json({ message: "Loan not found" });
       }
 
-      // Create payment transaction
-      await storage.createTransaction({
+      if (loan.status !== "active") {
+        return res.status(400).json({ message: "Cannot make payment on inactive loan" });
+      }
+
+      // Calculate remaining balance
+      const existingPayments = await storage.getLoanTransactions(loanId);
+      const totalPaid = existingPayments
+        .filter(t => t.type === "payment")
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      const totalOwed = parseFloat(loan.totalRepayment);
+      const remainingBalance = totalOwed - totalPaid;
+
+      if (amount > remainingBalance + 0.01) { // Allow small rounding differences
+        return res.status(400).json({ 
+          message: `Payment amount ($${amount}) exceeds remaining balance ($${remainingBalance.toFixed(2)})` 
+        });
+      }
+
+      // Create payment transaction with enhanced details
+      const transaction = await storage.createTransaction({
         userId,
         loanId,
         type: "payment",
@@ -156,7 +220,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "completed",
       });
 
-      res.json({ message: "Payment processed successfully" });
+      // Check if loan is fully paid
+      const newRemainingBalance = remainingBalance - amount;
+      if (newRemainingBalance <= 0.01) {
+        await storage.updateLoanStatus(loanId, "completed");
+      }
+
+      res.json({ 
+        message: "Payment processed successfully",
+        transaction,
+        remainingBalance: Math.max(0, newRemainingBalance),
+        loanStatus: newRemainingBalance <= 0.01 ? "completed" : "active"
+      });
     } catch (error) {
       console.error("Error processing payment:", error);
       res.status(500).json({ message: "Failed to process payment" });

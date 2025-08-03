@@ -6,6 +6,7 @@ import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { useLoanNotifications } from "@/components/ui/toast-notifications";
 import {
   Dialog,
   DialogContent,
@@ -60,6 +61,7 @@ export default function LoanApplicationModal({ open, onClose }: LoanApplicationM
   const maxSteps = 3;
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { notifyLoanApproved } = useLoanNotifications();
 
   // Fetch real-time crypto prices
   const { data: cryptoPrices } = useQuery({
@@ -92,11 +94,9 @@ export default function LoanApplicationModal({ open, onClose }: LoanApplicationM
     mutationFn: async (data: LoanFormData) => {
       await apiRequest("POST", "/api/loans", data);
     },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Loan application submitted successfully!",
-      });
+    onSuccess: (loan: any) => {
+      const amount = watchedValues.amount.toString();
+      notifyLoanApproved(loan?.id || "unknown", amount);
       queryClient.invalidateQueries({ queryKey: ["/api/loans"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });

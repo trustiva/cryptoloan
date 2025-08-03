@@ -18,8 +18,10 @@ import {
   CheckCircle, 
   TrendingUp, 
   BarChart3,
-  Plus
+  Plus,
+  Settings
 } from "lucide-react";
+import { Link } from "wouter";
 import StatCard from "@/components/ui/stat-card";
 import LoanCard from "@/components/ui/loan-card";
 import LoanApplicationModal from "@/components/loan-application-modal";
@@ -101,6 +103,12 @@ export default function Dashboard() {
                 <Plus className="w-4 h-4 mr-2" />
                 Apply for Loan
               </Button>
+              <Link href="/testing">
+                <Button variant="outline" size="sm">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Testing
+                </Button>
+              </Link>
               <Button variant="ghost" onClick={handleLogout}>
                 Logout
               </Button>

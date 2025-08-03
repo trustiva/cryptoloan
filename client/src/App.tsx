@@ -8,6 +8,7 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import LoanDetails from "@/pages/loan-details";
+import TestingPage from "@/pages/testing";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -22,6 +23,7 @@ function Router() {
           <Route path="/loan/:id">
             {(params) => <LoanDetails loanId={params.id} />}
           </Route>
+          <Route path="/testing" component={TestingPage} />
         </>
       )}
       <Route component={NotFound} />
