@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 
-interface AppError extends Error {
+export interface AppError extends Error {
   statusCode?: number;
   isOperational?: boolean;
 }

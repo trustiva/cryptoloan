@@ -51,6 +51,6 @@ export function useHealthCheck() {
     isLoading,
     error,
     refetch,
-    isHealthy: status.status === 'healthy' && isOnline
+    isHealthy: (status as any)?.status === 'healthy' && isOnline
   };
 }

@@ -15,6 +15,12 @@ const loanApplicationSchema = insertLoanSchema.extend({
   amount: z.number().min(100).max(100000),
   termDays: z.number().min(30).max(365),
   collateralAmount: z.number().min(0.001),
+}).partial({ 
+  id: true, 
+  userId: true, 
+  status: true, 
+  createdAt: true, 
+  updatedAt: true 
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {

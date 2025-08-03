@@ -1,7 +1,7 @@
 // Extension methods for storage to support admin functionality
-import { IStorage } from './storage';
+import type { IStorage } from '../storage';
 
-declare module './storage' {
+declare module '../storage' {
   interface IStorage {
     getAllLoans(): Promise<any[]>;
     getAllUsers(): Promise<any[]>;

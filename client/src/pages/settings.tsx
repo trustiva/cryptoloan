@@ -8,6 +8,8 @@ import { PaymentReminders } from "@/components/payment-reminders";
 import { AnalyticsDashboard } from "@/components/analytics-dashboard";
 import { SystemStatus } from "@/components/system-status";
 import { ProductionReadinessCheck } from "@/components/production-readiness-check";
+import { DeploymentDashboard } from "@/components/deployment-dashboard";
+import { MonitoringSuite } from "@/components/monitoring-suite";
 import { Settings, Shield, Bell, BarChart3, User, CreditCard } from "lucide-react";
 
 export default function SettingsPage() {
@@ -27,7 +29,7 @@ export default function SettingsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-7' : 'grid-cols-5'}`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-9' : 'grid-cols-5'}`}>
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               Profile
@@ -58,6 +60,14 @@ export default function SettingsPage() {
                   <Shield className="w-4 h-4" />
                   Testing
                 </TabsTrigger>
+                <TabsTrigger value="deployment" className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  Deploy
+                </TabsTrigger>
+                <TabsTrigger value="monitoring" className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  Monitor
+                </TabsTrigger>
               </>
             )}
           </TabsList>
@@ -74,15 +84,15 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Email</label>
-                    <div className="text-sm font-medium">{user?.email || "Not available"}</div>
+                    <div className="text-sm font-medium">{(user as any)?.email || "Not available"}</div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">First Name</label>
-                    <div className="text-sm font-medium">{user?.firstName || "Not available"}</div>
+                    <div className="text-sm font-medium">{(user as any)?.firstName || "Not available"}</div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Last Name</label>
-                    <div className="text-sm font-medium">{user?.lastName || "Not available"}</div>
+                    <div className="text-sm font-medium">{(user as any)?.lastName || "Not available"}</div>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Account Type</label>
@@ -174,6 +184,12 @@ export default function SettingsPage() {
               </TabsContent>
               <TabsContent value="testing" className="space-y-6">
                 <ProductionReadinessCheck />
+              </TabsContent>
+              <TabsContent value="deployment" className="space-y-6">
+                <DeploymentDashboard />
+              </TabsContent>
+              <TabsContent value="monitoring" className="space-y-6">
+                <MonitoringSuite />
               </TabsContent>
             </>
           )}
