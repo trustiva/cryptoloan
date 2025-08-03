@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -43,11 +43,16 @@ interface LoanApplicationModalProps {
   onClose: () => void;
 }
 
-const CRYPTO_PRICES = {
+// This will be fetched from the API
+let CRYPTO_PRICES = {
   BTC: 43250,
   ETH: 2540,
   BNB: 315,
   ADA: 0.85,
+  SOL: 65.50,
+  MATIC: 0.92,
+  DOT: 7.20,
+  LINK: 14.80,
 };
 
 export default function LoanApplicationModal({ open, onClose }: LoanApplicationModalProps) {
@@ -55,6 +60,17 @@ export default function LoanApplicationModal({ open, onClose }: LoanApplicationM
   const maxSteps = 3;
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch real-time crypto prices
+  const { data: cryptoPrices } = useQuery({
+    queryKey: ["/api/crypto-prices"],
+    staleTime: 60000, // 1 minute
+  });
+
+  // Update CRYPTO_PRICES when data is fetched
+  if (cryptoPrices) {
+    CRYPTO_PRICES = { ...CRYPTO_PRICES, ...cryptoPrices };
+  }
 
   const form = useForm<LoanFormData>({
     resolver: zodResolver(loanSchema),
@@ -288,6 +304,10 @@ export default function LoanApplicationModal({ open, onClose }: LoanApplicationM
                           {crypto === "ETH" && "⟠"}
                           {crypto === "BNB" && "🔶"}
                           {crypto === "ADA" && "♠"}
+                          {crypto === "SOL" && "◉"}
+                          {crypto === "MATIC" && "⬟"}
+                          {crypto === "DOT" && "●"}
+                          {crypto === "LINK" && "🔗"}
                         </span>
                         <span className="text-sm font-medium">{crypto}</span>
                         <span className="text-xs text-muted-foreground">${price.toLocaleString()}</span>

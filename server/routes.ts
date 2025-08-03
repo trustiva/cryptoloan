@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertLoanSchema, insertTransactionSchema } from "@shared/schema";
 import { z } from "zod";
+import { CRYPTO_PRICES, calculateLoanMetrics } from "./cryptoService";
 
 const loanApplicationSchema = insertLoanSchema.extend({
   amount: z.number().min(100).max(100000),
@@ -27,19 +28,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get crypto prices endpoint
+  app.get('/api/crypto-prices', (req, res) => {
+    res.json(CRYPTO_PRICES);
+  });
+
   // Loan routes
   app.post('/api/loans', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const validatedData = loanApplicationSchema.parse(req.body);
       
-      // Calculate loan terms (mock calculations - in real app, use actual interest rates)
-      const principal = validatedData.amount;
-      const annualRate = parseFloat(validatedData.interestRate) / 100;
-      const termInYears = validatedData.termDays / 365;
-      const totalInterest = principal * annualRate * termInYears;
-      const totalRepayment = principal + totalInterest;
-      const monthlyPayment = totalRepayment / (validatedData.termDays / 30);
+      // Calculate loan metrics using the crypto service
+      const metrics = calculateLoanMetrics(
+        validatedData.amount,
+        validatedData.collateralAmount,
+        validatedData.collateralType as keyof typeof CRYPTO_PRICES,
+        validatedData.termDays,
+        parseFloat(validatedData.interestRate)
+      );
       
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + validatedData.termDays);
@@ -52,9 +59,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         amount: validatedData.amount.toString(),
         collateralAmount: validatedData.collateralAmount.toString(),
-        monthlyPayment: monthlyPayment.toFixed(2),
-        totalInterest: totalInterest.toFixed(2),
-        totalRepayment: totalRepayment.toFixed(2),
+        monthlyPayment: metrics.monthlyPayment.toFixed(2),
+        totalInterest: metrics.totalInterest.toFixed(2),
+        totalRepayment: metrics.totalRepayment.toFixed(2),
         dueDate,
         nextPaymentDate,
       };
@@ -67,7 +74,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         loanId: loan.id,
         type: "disbursement",
         amount: validatedData.amount.toString(),
-        currency: validatedData.currency,
+        currency: validatedData.currency || "USDT",
         status: "completed",
       });
 

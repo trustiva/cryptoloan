@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -120,9 +121,11 @@ export default function LoanCard({ loan }: LoanCardProps) {
             >
               Make Payment
             </Button>
-            <Button variant="outline" className="flex-1">
-              View Details
-            </Button>
+            <Link href={`/loan/${loan.id}`}>
+              <Button variant="outline" className="flex-1 w-full">
+                View Details
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

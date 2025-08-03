@@ -46,21 +46,25 @@ export default function Dashboard() {
   }, [isAuthenticated, authLoading, toast]);
 
   // Fetch user stats
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<{
+    totalBorrowed: string;
+    activeLoans: number;
+    totalCollateral: string;
+  }>({
     queryKey: ["/api/stats"],
     enabled: isAuthenticated,
     retry: false,
   });
 
   // Fetch loans
-  const { data: loans = [], isLoading: loansLoading } = useQuery({
+  const { data: loans = [], isLoading: loansLoading } = useQuery<any[]>({
     queryKey: ["/api/loans"],
     enabled: isAuthenticated,
     retry: false,
   });
 
   // Fetch transactions
-  const { data: transactions = [], isLoading: transactionsLoading } = useQuery({
+  const { data: transactions = [], isLoading: transactionsLoading } = useQuery<any[]>({
     queryKey: ["/api/transactions"],
     enabled: isAuthenticated,
     retry: false,
@@ -78,9 +82,9 @@ export default function Dashboard() {
     );
   }
 
-  const userName = user?.firstName && user?.lastName 
-    ? `${user.firstName} ${user.lastName}`
-    : user?.email || "User";
+  const userName = (user as any)?.firstName && (user as any)?.lastName 
+    ? `${(user as any).firstName} ${(user as any).lastName}`
+    : (user as any)?.email || "User";
 
   return (
     <div className="min-h-screen bg-background">
